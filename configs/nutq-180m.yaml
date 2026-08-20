@@ -2,7 +2,7 @@ model:
   encoder_name: openai/whisper-small
   decoder_name: google/byt5-small
   compressor_mode: soft
-  compression_ratio: 6
+  compression_ratio: 4
   ctc_loss_weight: 0.3
   ctc_blank_token_id: 384
 

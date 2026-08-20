@@ -23,7 +23,7 @@ class NutqConfig(PretrainedConfig):
         ctc_blank_token_id: int | None = None,
         ctc_loss_weight: float = 0.3,
         compressor_mode: str = "soft",
-        compression_ratio: int = 6,
+        compression_ratio: int = 4,
         compressor_temperature: float = 0.08,
         compressor_salience_floor: float = 0.05,
         projector_expansion: int = 2,

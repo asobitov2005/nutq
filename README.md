@@ -14,6 +14,29 @@ coverage without putting every audio frame into a large language model context.
 > claim yet. The code runs end to end; meaningful transcripts require training and a
 > speaker/source-disjoint evaluation.
 
+## Four-command start
+
+```bash
+# 1. Confirm that the CUDA build and GPU are visible.
+nutq doctor --require-gpu
+
+# 2. Assemble the pretrained encoder and decoder.
+nutq init --output checkpoints/nutq-180m-init
+
+# 3. Train on paired audio/transcript manifests. One CUDA GPU is selected automatically.
+nutq train \
+  --dataset json \
+  --train-files /data/train.jsonl \
+  --eval-files /data/validation.jsonl \
+  --stage bridge
+
+# 4. Use the resulting checkpoint.
+nutq transcribe sample.wav --model outputs/nutq-180m --dtype bfloat16
+```
+
+`nutq COMMAND --help` lists the options. Multi-GPU launchers are optional and documented
+later; they are not required for a single-GPU run.
+
 ## NUTQ-180M
 
 The default configuration has exactly **179,290,497 parameters before freezing**:
@@ -32,7 +55,7 @@ Whisper acoustic encoder
     │
 auxiliary byte CTC head ───────► alignment signal + CTC loss
     │
-soft CTC-mass memory pooling ──► ~6x fewer acoustic positions
+soft CTC-mass memory pooling ──► ~4x fewer acoustic positions
     │
 gated 768 → 1472 projector
     │ cross-attention
@@ -111,8 +134,7 @@ Stage 1 trains CTC, the projector, decoder cross-attention, and decoder normaliz
 freezing the transferred backbones:
 
 ```bash
-accelerate launch --config_file configs/accelerate/1gpu.yaml \
-  -m nutq_asr.cli.train \
+nutq train \
   --config configs/nutq-180m.yaml \
   --dataset json \
   --train-files /data/train.jsonl \
@@ -123,8 +145,7 @@ accelerate launch --config_file configs/accelerate/1gpu.yaml \
 Stage 2 unfreezes the full network. Point `--checkpoint` at the best stage-1 model:
 
 ```bash
-accelerate launch --config_file configs/accelerate/1gpu.yaml \
-  -m nutq_asr.cli.train \
+nutq train \
   --config configs/nutq-180m.yaml \
   --dataset json \
   --train-files /data/train.jsonl \
@@ -139,8 +160,9 @@ Hub datasets use the same CLI. A small pipeline check can use
 --max-eval-samples 8`; it deliberately reuses one split and is only a smoke test, not a
 benchmark.
 
-For four GPUs, switch to `configs/accelerate/fsdp-4gpu.yaml`. DeepSpeed ZeRO-2 settings are
-in `configs/deepspeed/zero2.json`. See [Training](docs/training.md) before a long run.
+For four GPUs, use `accelerate launch --config_file configs/accelerate/fsdp-4gpu.yaml -m
+nutq_asr.cli.train ...`. DeepSpeed ZeRO-2 settings are in `configs/deepspeed/zero2.json`.
+These are advanced paths; see [Training](docs/training.md) before a long run.
 
 ## Inference and evaluation
 

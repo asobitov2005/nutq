@@ -29,7 +29,8 @@ CUDA 12.1 runtime, and Transformers 5.15.1.
 Tiny-model BF16 forward, combined-loss backward, and two-layer greedy generation passed.
 The real `NUTQ-180M` component initialization then passed with safetensors-only loading.
 
-For one random 30-second-shaped tensor with five seconds marked valid:
+For one random 30-second-shaped tensor with five seconds marked valid and the experimental
+ratio-6 compressor (the public default is now the safer ratio 4):
 
 - parameters: 179,290,497;
 - CTC frames: `[1, 1500, 385]`;
@@ -49,4 +50,3 @@ These timing and memory readings used synthetic input, batch size one, no warmup
 loading, and a concurrently used GPU. They are smoke measurements, not throughput or
 real-time-factor benchmarks. The bridge is untrained, so its loss and generated tokens have
 no speech-recognition meaning.
-

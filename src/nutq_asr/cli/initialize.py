@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument("--encoder", default="openai/whisper-small")
     parser.add_argument("--decoder", default="google/byt5-small")
     parser.add_argument("--compressor", choices=["none", "fixed", "soft"], default="soft")
-    parser.add_argument("--compression-ratio", type=int, default=6)
+    parser.add_argument("--compression-ratio", type=int, default=4)
     parser.add_argument("--ctc-loss-weight", type=float, default=0.3)
     args = parser.parse_args()
 

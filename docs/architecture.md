@@ -12,8 +12,9 @@ For encoder frame `t`, let `b_t` be the CTC blank probability. Salience is
 coordinate. Output slot centers are uniform in that coordinate, and Gaussian weights pool
 nearby frames. The floor keeps a gradient and evidence path before the CTC head is useful.
 
-The default six-times compression maps Whisper's 1,500 encoder positions for a 30-second
-clip to at most 250 cross-attention memory positions.
+The accuracy-oriented default four-times compression maps Whisper's 1,500 encoder positions
+for a 30-second clip to at most 375 cross-attention memory positions. Ratios 2, 4, 6, and 8
+remain required ablations instead of assuming that the most compressed run is best.
 
 ## Loss
 
@@ -54,4 +55,3 @@ latency and training budget.
 - CTC can be overconfident; the salience floor reduces but does not eliminate this risk.
 - Whisper's reference frontend is chunked to 30 seconds; streaming needs explicit state and
   overlap handling, not merely smaller chunks.
-
