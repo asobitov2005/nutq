@@ -404,8 +404,13 @@ class NutqForConditionalGeneration(NutqPreTrainedModel, GenerationMixin):
         **config_overrides: Any,
     ) -> NutqForConditionalGeneration:
         """Initialize NUTQ from separately pretrained Whisper and ByT5 checkpoints."""
-        whisper = WhisperModel.from_pretrained(encoder_name_or_path)
-        byt5 = T5ForConditionalGeneration.from_pretrained(decoder_name_or_path)
+        # Component initialization accepts only safetensors. Besides avoiding arbitrary
+        # pickle loading, this remains safe on PyTorch versions that block vulnerable
+        # ``torch.load`` releases.
+        whisper = WhisperModel.from_pretrained(encoder_name_or_path, use_safetensors=True)
+        byt5 = T5ForConditionalGeneration.from_pretrained(
+            decoder_name_or_path, use_safetensors=True
+        )
         config = NutqConfig(
             encoder_config=whisper.config,
             decoder_config=byt5.config,

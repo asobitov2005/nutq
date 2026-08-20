@@ -11,7 +11,6 @@ class NutqProcessor(ProcessorMixin):
     """Bundle a Whisper feature extractor with a ByT5 byte tokenizer."""
 
     attributes = ["feature_extractor", "tokenizer"]
-    feature_extractor_class = "WhisperFeatureExtractor"
     tokenizer_class = "ByT5Tokenizer"
 
     def __init__(

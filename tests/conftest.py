@@ -27,7 +27,7 @@ def tiny_config() -> NutqConfig:
         d_ff=32,
         d_kv=8,
         num_layers=1,
-        num_decoder_layers=1,
+        num_decoder_layers=2,
         num_heads=2,
         pad_token_id=0,
         eos_token_id=1,

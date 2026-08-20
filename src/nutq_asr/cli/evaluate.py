@@ -43,7 +43,8 @@ def main() -> None:
     model = NutqForConditionalGeneration.from_pretrained(args.model).to(device, dtype=dtype).eval()
     dataset = load_dataset(args.dataset, args.dataset_config, split=args.split)
     dataset = dataset.cast_column(
-        args.audio_column, Audio(sampling_rate=processor.feature_extractor.sampling_rate)
+        args.audio_column,
+        Audio(sampling_rate=processor.feature_extractor.sampling_rate, decode=False),
     )
     if args.limit is not None:
         dataset = dataset.select(range(min(args.limit, len(dataset))))

@@ -37,6 +37,9 @@ class NutqConfig(PretrainedConfig):
         decoder.is_decoder = True
         decoder.is_encoder_decoder = False
         decoder.add_cross_attention = True
+        # T5 stores encoder depth in ``num_layers`` and decoder depth separately. NUTQ
+        # keeps only the decoder, so generation cache allocation must see decoder depth.
+        decoder.num_layers = decoder.num_decoder_layers
 
         vocab_size = decoder.vocab_size
         blank_id = vocab_size if ctc_blank_token_id is None else ctc_blank_token_id

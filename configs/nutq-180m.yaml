@@ -17,9 +17,9 @@ training:
   output_dir: outputs/nutq-180m
   learning_rate: 0.0002
   warmup_steps: 0.05
-  per_device_train_batch_size: 8
-  per_device_eval_batch_size: 8
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 16
   num_train_epochs: 10
   bf16: true
   tf32: true

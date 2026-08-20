@@ -65,8 +65,10 @@ def _load_splits(args: argparse.Namespace, sampling_rate: int) -> dict[str, Any]
     }
     train = load_dataset(**common, split=args.train_split)
     evaluation = load_dataset(**common, split=args.eval_split)
-    train = train.cast_column("audio", Audio(sampling_rate=sampling_rate))
-    evaluation = evaluation.cast_column("audio", Audio(sampling_rate=sampling_rate))
+    # Decode with SoundFile in our preprocessing function. This avoids coupling dataset
+    # ingestion to a particular TorchCodec/CUDA build.
+    train = train.cast_column("audio", Audio(sampling_rate=sampling_rate, decode=False))
+    evaluation = evaluation.cast_column("audio", Audio(sampling_rate=sampling_rate, decode=False))
     if args.max_train_samples is not None:
         train = (
             train.take(args.max_train_samples)

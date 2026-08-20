@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
   "accelerate>=1.2,<2",
-  "datasets[audio]>=3.2,<5",
+  "datasets>=3.2,<5",
   "jiwer>=3.0,<5",
   "numpy>=1.26,<3",
   "pyyaml>=6.0",
