@@ -1,0 +1,33 @@
+name: Research result
+description: Share a reproducible training or ablation result
+title: "[Result]: "
+labels: [research]
+body:
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis and result
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Data and splits
+      description: Dataset revision, hours, languages, and speaker/source split construction.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Commit, component revisions, seed, hardware, and full training config.
+    validations:
+      required: true
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Metrics and baseline
+      description: WER/CER, decoding config, uncertainty, latency/VRAM, and comparable baseline.
+    validations:
+      required: true
+

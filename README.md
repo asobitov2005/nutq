@@ -1,5 +1,7 @@
 # NUTQ
 
+[![CI](https://github.com/asobitov2005/nutq/actions/workflows/ci.yml/badge.svg)](https://github.com/asobitov2005/nutq/actions/workflows/ci.yml)
+
 **Compact multilingual speech recognition, byte by byte.**
 
 NUTQ is an experimental encoder-decoder automatic speech recognition architecture. It
@@ -38,6 +40,7 @@ gated 768 → 1472 projector
 ```
 
 See [Architecture](docs/architecture.md) for the algorithm and research risks.
+See [Validation](docs/validation.md) for the exact smoke-test scope and measured hardware.
 
 ## Install
 
@@ -63,7 +66,8 @@ pytest
 ## Initialize a checkpoint
 
 This copies only the Whisper encoder and ByT5 decoder weights. The CTC head, projector,
-and modality adaptation still need training.
+and modality adaptation still need training. Component loading requires safetensors rather
+than pickle-based PyTorch weight files.
 
 ```bash
 nutq-init --output checkpoints/nutq-180m-init
@@ -130,8 +134,10 @@ accelerate launch --config_file configs/accelerate/1gpu.yaml \
 ```
 
 Hub datasets use the same CLI. A small pipeline check can use
-`--dataset openslr/librispeech_asr --dataset-config clean --max-train-samples 16
---max-eval-samples 8`; it is a smoke test, not a benchmark.
+`--dataset hf-internal-testing/librispeech_asr_dummy --dataset-config clean
+--train-split validation --eval-split validation --max-train-samples 16
+--max-eval-samples 8`; it deliberately reuses one split and is only a smoke test, not a
+benchmark.
 
 For four GPUs, switch to `configs/accelerate/fsdp-4gpu.yaml`. DeepSpeed ZeRO-2 settings are
 in `configs/deepspeed/zero2.json`. See [Training](docs/training.md) before a long run.
@@ -168,4 +174,3 @@ for measured bottlenecks. See [Performance roadmap](docs/performance.md).
 
 Apache-2.0. NUTQ does not redistribute pretrained component weights; review each model and
 dataset license before releasing a derivative checkpoint.
-
