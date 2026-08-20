@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nutq-asr"
+version = "0.1.0.dev0"
+description = "Compact multilingual speech recognition with CTC-compressed acoustic memory and a byte-level decoder"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Azizbek Sobitov", email = "asobitov2005@gmail.com" }]
+keywords = ["speech-recognition", "asr", "transformers", "whisper", "byt5", "ctc"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "accelerate>=1.2,<2",
+  "datasets[audio]>=3.2,<5",
+  "jiwer>=3.0,<5",
+  "numpy>=1.26,<3",
+  "safetensors>=0.4.5",
+  "soundfile>=0.12.1",
+  "torch>=2.4,<3",
+  "transformers>=4.48,<6",
+]
+
+[project.optional-dependencies]
+train = ["tensorboard>=2.17", "wandb>=0.19"]
+dev = [
+  "build>=1.2",
+  "mypy>=1.13",
+  "pre-commit>=4.0",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "ruff>=0.9",
+]
+flash = ["flash-attn>=2.7; platform_system == 'Linux'"]
+
+[project.urls]
+Homepage = "https://github.com/asobitov2005/nutq"
+Repository = "https://github.com/asobitov2005/nutq"
+Issues = "https://github.com/asobitov2005/nutq/issues"
+
+[project.scripts]
+nutq-train = "nutq_asr.cli.train:main"
+nutq-eval = "nutq_asr.cli.evaluate:main"
+nutq-transcribe = "nutq_asr.cli.transcribe:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nutq_asr"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["nutq_asr"]
+

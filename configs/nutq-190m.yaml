@@ -1,0 +1,30 @@
+model:
+  encoder_name: openai/whisper-small
+  decoder_name: google/byt5-small
+  compressor_mode: soft
+  compression_ratio: 6
+  ctc_loss_weight: 0.3
+  ctc_blank_token_id: 384
+
+data:
+  sampling_rate: 16000
+  max_audio_seconds: 30.0
+  max_label_length: 1024
+  audio_column: audio
+  text_column: text
+
+training:
+  output_dir: outputs/nutq-190m
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  num_train_epochs: 10
+  bf16: true
+  gradient_checkpointing: true
+  dataloader_num_workers: 8
+  save_steps: 1000
+  eval_steps: 1000
+  logging_steps: 20
+
