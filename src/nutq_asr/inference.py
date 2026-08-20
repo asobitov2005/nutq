@@ -64,7 +64,7 @@ class NutqTranscriber:
             audio=waveform,
             sampling_rate=rate,
             return_tensors="pt",
-            audio_kwargs={"padding": True},
+            audio_kwargs={"padding": "max_length", "truncation": True},
         )
         model_inputs = {
             key: value.to(device=self.device, non_blocking=True)

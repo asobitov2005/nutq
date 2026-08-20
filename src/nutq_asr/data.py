@@ -66,7 +66,7 @@ def prepare_dataset_example(
         audio=array,
         text=example[text_column],
         sampling_rate=sampling_rate,
-        audio_kwargs={"padding": False},
+        audio_kwargs={"padding": "max_length", "truncation": True},
         text_kwargs={"truncation": True, "max_length": max_label_length},
     )
     return {

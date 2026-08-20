@@ -51,6 +51,7 @@ Repository = "https://github.com/asobitov2005/nutq"
 Issues = "https://github.com/asobitov2005/nutq/issues"
 
 [project.scripts]
+nutq-init = "nutq_asr.cli.initialize:main"
 nutq-train = "nutq_asr.cli.train:main"
 nutq-eval = "nutq_asr.cli.evaluate:main"
 nutq-transcribe = "nutq_asr.cli.transcribe:main"

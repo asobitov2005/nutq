@@ -420,11 +420,17 @@ class NutqForConditionalGeneration(NutqPreTrainedModel, GenerationMixin):
         return model
 
     def freeze_pretrained_components(self) -> None:
-        """Freeze the transferred encoder and decoder for bridge warm-up."""
+        """Freeze backbone blocks while adapting the bridge and cross-attention."""
         for parameter in self.model.acoustic_encoder.encoder.parameters():
             parameter.requires_grad = False
         for parameter in self.model.decoder.parameters():
             parameter.requires_grad = False
+        for block in self.model.decoder.block:
+            if len(block.layer) > 1:
+                for parameter in block.layer[1].parameters():
+                    parameter.requires_grad = True
+        for parameter in self.model.decoder.final_layer_norm.parameters():
+            parameter.requires_grad = True
         for parameter in self.model.shared.parameters():
             parameter.requires_grad = False
         for parameter in self.lm_head.parameters():

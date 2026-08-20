@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import torch
 import yaml
-from datasets import Audio, DatasetDict, load_dataset
+from datasets import Audio, load_dataset
 from jiwer import cer, wer
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments, set_seed
 
@@ -22,7 +22,7 @@ from ..processing_nutq import NutqProcessor
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train a NUTQ speech recognition model")
-    parser.add_argument("--config", type=Path, default=Path("configs/nutq-190m.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/nutq-180m.yaml"))
     parser.add_argument("--dataset", required=True, help="Hub dataset ID or local dataset script")
     parser.add_argument("--dataset-config", default=None)
     parser.add_argument("--train-split", default="train")
@@ -49,7 +49,7 @@ def _load_config(path: Path) -> dict[str, Any]:
     return config
 
 
-def _load_splits(args: argparse.Namespace, sampling_rate: int) -> DatasetDict:
+def _load_splits(args: argparse.Namespace, sampling_rate: int) -> dict[str, Any]:
     data_files = None
     if args.train_files or args.eval_files:
         data_files = {}
@@ -79,12 +79,12 @@ def _load_splits(args: argparse.Namespace, sampling_rate: int) -> DatasetDict:
             if args.streaming
             else evaluation.select(range(min(args.max_eval_samples, len(evaluation))))
         )
-    return DatasetDict(train=train, validation=evaluation)
+    return {"train": train, "validation": evaluation}
 
 
 def _prepare_splits(
-    datasets: DatasetDict, processor: NutqProcessor, data_config: dict[str, Any]
-) -> DatasetDict:
+    datasets: dict[str, Any], processor: NutqProcessor, data_config: dict[str, Any]
+) -> dict[str, Any]:
     transform = functools.partial(
         prepare_dataset_example,
         processor=processor,
@@ -97,7 +97,7 @@ def _prepare_splits(
     for split, dataset in datasets.items():
         remove_columns = list(dataset.column_names)
         prepared[split] = dataset.map(transform, remove_columns=remove_columns)
-    return DatasetDict(prepared)
+    return prepared
 
 
 def _metrics(processor: NutqProcessor):
