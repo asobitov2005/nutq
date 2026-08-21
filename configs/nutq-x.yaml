@@ -1,0 +1,45 @@
+model:
+  variant: x
+  backbone_name: openai/whisper-large-v3-turbo
+  language: null
+  task: transcribe
+  ar_loss_weight: 1.0
+  ctc_loss_weight: 0.3
+  tdt_loss_weight: 0.3
+  tdt_hidden_size: 512
+  tdt_num_layers: 2
+  tdt_subsampling_factor: 4
+  tdt_durations: [0, 1, 2, 3, 4]
+  tdt_sigma: 0.05
+  auto_fallback_threshold: null
+
+data:
+  sampling_rate: 16000
+  max_audio_seconds: 30.0
+  max_label_length: 448
+  long_audio_policy: reject
+  audio_column: audio
+  text_column: text
+  language_column: language
+  task_column: task
+  default_language: null
+  default_task: transcribe
+
+training:
+  output_dir: outputs/nutq-x
+  learning_rate: 0.0001
+  warmup_ratio: 0.05
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 32
+  num_train_epochs: 10
+  bf16: true
+  tf32: true
+  gradient_checkpointing: true
+  group_by_length: true
+  length_column_name: input_length
+  dataloader_num_workers: 8
+  dataloader_persistent_workers: true
+  save_steps: 1000
+  eval_steps: 1000
+  logging_steps: 20

@@ -2,197 +2,136 @@
 
 [![CI](https://github.com/asobitov2005/nutq/actions/workflows/ci.yml/badge.svg)](https://github.com/asobitov2005/nutq/actions/workflows/ci.yml)
 
-**Compact multilingual speech recognition, byte by byte.**
+NUTQ is a Transformers-compatible multilingual ASR model family built on Whisper encoders.
+It provides training, evaluation, and inference commands for three presets.
 
-NUTQ is an experimental encoder-decoder automatic speech recognition architecture. It
-connects a pretrained Whisper acoustic encoder to a byte-level ByT5 decoder through
-CTC-guided compressed acoustic memory. It is designed to retain multilingual Unicode
-coverage without putting every audio frame into a large language model context.
+> NUTQ currently publishes source code and initialization recipes. Trained NUTQ checkpoints
+> and benchmark results have not been released yet.
 
-> [!IMPORTANT]
-> NUTQ is currently an untrained research implementation. There is no released accuracy
-> claim yet. The code runs end to end; meaningful transcripts require training and a
-> speaker/source-disjoint evaluation.
+## Models
 
-## Four-command start
+| Model | Encoder | Decoder | Extra head | Parameters |
+|---|---|---|---|---:|
+| NUTQ-S | Whisper small | 4-layer Whisper | byte CTC | 166.3M |
+| NUTQ-M | Whisper medium | 4-layer Whisper | byte CTC | 428.2M |
+| NUTQ-X | Whisper large-v3/Turbo | 4-layer Whisper | byte CTC + TDT | 816.7M |
 
-```bash
-# 1. Confirm that the CUDA build and GPU are visible.
-nutq doctor --require-gpu
-
-# 2. Assemble the pretrained encoder and decoder.
-nutq init --output checkpoints/nutq-180m-init
-
-# 3. Train on paired audio/transcript manifests. One CUDA GPU is selected automatically.
-nutq train \
-  --dataset json \
-  --train-files /data/train.jsonl \
-  --eval-files /data/validation.jsonl \
-  --stage bridge
-
-# 4. Use the resulting checkpoint.
-nutq transcribe sample.wav --model outputs/nutq-180m --dtype bfloat16
-```
-
-`nutq COMMAND --help` lists the options. Multi-GPU launchers are optional and documented
-later; they are not required for a single-GPU run.
-
-## NUTQ-180M
-
-The default configuration has exactly **179,290,497 parameters before freezing**:
-
-| Component | Parameters | Initialization |
-|---|---:|---|
-| Whisper acoustic encoder | 88,154,112 | `openai/whisper-small` encoder |
-| ByT5 decoder and byte embedding | 81,980,288 | `google/byt5-small` decoder |
-| Gated projector | 8,860,032 | new |
-| Byte CTC head | 296,065 | new |
-
-```text
-16 kHz audio
-    │
-Whisper acoustic encoder
-    │
-auxiliary byte CTC head ───────► alignment signal + CTC loss
-    │
-soft CTC-mass memory pooling ──► ~4x fewer acoustic positions
-    │
-gated 768 → 1472 projector
-    │ cross-attention
-4-layer ByT5 byte decoder ─────► UTF-8 transcript
-```
-
-See [Architecture](docs/architecture.md) for the algorithm and research risks.
-See [Validation](docs/validation.md) for the exact smoke-test scope and measured hardware.
+S and M are compact AR/CTC models. X adds a Token-and-Duration Transducer fast path and can
+fall back to its AR decoder when TDT confidence is low. See [Models](docs/models.md).
 
 ## Install
 
-Python 3.10+ and PyTorch 2.4+ are required. Install PyTorch for the target CUDA version
-first, then NUTQ:
+Python 3.10+ is required. Install the correct PyTorch build for the target CUDA version,
+then install NUTQ:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cu128
 pip install -e '.[train]'
+nutq doctor --require-gpu
 ```
 
-For CPU-only development, use PyTorch's `/whl/cpu` index. For contributors:
+## Quickstart
+
+Initialize a model:
+
+```bash
+nutq init --variant m --output checkpoints/nutq-m-init
+```
+
+Train it on JSON/JSONL manifests:
+
+```json
+{"audio": "/data/000001.wav", "text": "Exact transcript.", "language": "english", "task": "transcribe"}
+{"audio": "/data/000002.flac", "text": "Aniq transkript.", "language": "uzbek", "task": "transcribe"}
+```
+
+```bash
+nutq train \
+  --config configs/nutq-m.yaml \
+  --dataset json \
+  --train-files /data/train.jsonl \
+  --eval-files /data/validation.jsonl \
+  --stage decoder
+```
+
+Transcribe with a trained checkpoint:
+
+```bash
+nutq transcribe audio.wav --model outputs/nutq-m --strategy ar --dtype bfloat16
+```
+
+Evaluate:
+
+```bash
+nutq eval --model outputs/nutq-m --dataset ORG/DATASET --split test --strategy ar
+```
+
+## Python API
+
+```python
+from nutq_asr import NutqForConditionalGeneration, NutqProcessor
+from nutq_asr.inference import NutqTranscriber
+
+model = NutqForConditionalGeneration.from_pretrained_variant("m")
+processor = NutqProcessor.from_pretrained_variant("m", language="uzbek")
+
+asr = NutqTranscriber.from_pretrained("outputs/nutq-m", device="cuda")
+text = asr.transcribe("audio.wav", strategy="ar")
+```
+
+Importing `nutq_asr` registers the model with Transformers:
+
+```python
+import nutq_asr
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+
+model = AutoModelForSpeechSeq2Seq.from_pretrained("outputs/nutq-m")
+processor = AutoProcessor.from_pretrained("outputs/nutq-m")
+```
+
+## NUTQ-X decoding
+
+```bash
+nutq transcribe audio.wav --model outputs/nutq-x --strategy tdt
+
+nutq calibrate --model outputs/nutq-x --dataset ORG/VALIDATION \
+  --split validation --output calibration.json
+
+nutq transcribe audio.wav --model outputs/nutq-x --strategy auto \
+  --fallback-threshold CALIBRATED_VALUE
+```
+
+`ctc`, `tdt`, and `auto` require trained auxiliary heads. `auto` requires a threshold selected
+on held-out validation data.
+
+## Configuration
+
+Ready-to-edit recipes are in [`configs/`](configs). Model, data, and Trainer settings can be
+overridden in YAML or through the Python configuration API. See
+[Configuration](docs/configuration.md) and [Training](docs/training.md).
+
+## Documentation
+
+- [Models](docs/models.md)
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Multilingual data](docs/multilingual.md)
+- [Training](docs/training.md)
+- [Evaluation](docs/evaluation.md)
+- [Performance](docs/performance.md)
+- [Validation status](docs/validation.md)
+
+## Development
 
 ```bash
 pip install -e '.[dev]'
 ruff check .
+mypy src
 pytest
 ```
 
-## Initialize a checkpoint
-
-This copies only the Whisper encoder and ByT5 decoder weights. The CTC head, projector,
-and modality adaptation still need training. Component loading requires safetensors rather
-than pickle-based PyTorch weight files.
-
-```bash
-nutq-init --output checkpoints/nutq-180m-init
-```
-
-Python API:
-
-```python
-from nutq_asr import NutqForConditionalGeneration, NutqProcessor
-
-model = NutqForConditionalGeneration.from_pretrained_components()
-processor = NutqProcessor.from_pretrained_components()
-model.save_pretrained("checkpoints/nutq-180m-init")
-processor.save_pretrained("checkpoints/nutq-180m-init")
-```
-
-NUTQ registers with Transformers when `nutq_asr` is imported:
-
-```python
-import nutq_asr  # registers the custom architecture
-from transformers import AutoModelForSpeechSeq2Seq
-
-model = AutoModelForSpeechSeq2Seq.from_pretrained("checkpoints/nutq-180m-init")
-```
-
-## Dataset format
-
-Training requires paired audio and exact transcripts. JSON/JSONL files work directly:
-
-```json
-{"audio": "/data/audio/000001.wav", "text": "Exact transcript."}
-{"audio": "/data/audio/000002.flac", "text": "Keyingi transkript."}
-```
-
-Keep train, validation, and test speakers and recording sources disjoint. A duplicate clip
-or speaker across splits makes WER look better without improving the model.
-
-## Train
-
-Stage 1 trains CTC, the projector, decoder cross-attention, and decoder normalization while
-freezing the transferred backbones:
-
-```bash
-nutq train \
-  --config configs/nutq-180m.yaml \
-  --dataset json \
-  --train-files /data/train.jsonl \
-  --eval-files /data/validation.jsonl \
-  --stage bridge
-```
-
-Stage 2 unfreezes the full network. Point `--checkpoint` at the best stage-1 model:
-
-```bash
-nutq train \
-  --config configs/nutq-180m.yaml \
-  --dataset json \
-  --train-files /data/train.jsonl \
-  --eval-files /data/validation.jsonl \
-  --checkpoint outputs/nutq-180m/checkpoint-best \
-  --stage full
-```
-
-Hub datasets use the same CLI. A small pipeline check can use
-`--dataset hf-internal-testing/librispeech_asr_dummy --dataset-config clean
---train-split validation --eval-split validation --max-train-samples 16
---max-eval-samples 8`; it deliberately reuses one split and is only a smoke test, not a
-benchmark.
-
-For four GPUs, use `accelerate launch --config_file configs/accelerate/fsdp-4gpu.yaml -m
-nutq_asr.cli.train ...`. DeepSpeed ZeRO-2 settings are in `configs/deepspeed/zero2.json`.
-These are advanced paths; see [Training](docs/training.md) before a long run.
-
-## Inference and evaluation
-
-```bash
-nutq-transcribe sample.wav --model outputs/nutq-180m --dtype bfloat16 --compile
-
-nutq-eval \
-  --model outputs/nutq-180m \
-  --dataset openslr/librispeech_asr \
-  --dataset-config clean \
-  --split test.clean
-```
-
-Or use the library:
-
-```python
-from nutq_asr.inference import NutqTranscriber
-
-asr = NutqTranscriber.from_pretrained("outputs/nutq-180m", device="cuda")
-print(asr.transcribe("sample.wav", num_beams=1))
-```
-
-## Performance direction
-
-The current reference backend is PyTorch with SDPA, BF16, KV caching and optional
-`torch.compile`. Native serving is intentionally staged: first a Triton Inference Server
-Python backend, then an exported/fused runtime, and finally custom Triton/CUDA kernels only
-for measured bottlenecks. See [Performance roadmap](docs/performance.md).
-
 ## License
 
-Apache-2.0. NUTQ does not redistribute pretrained component weights; review each model and
-dataset license before releasing a derivative checkpoint.
+Apache-2.0. Pretrained backbone weights and datasets retain their own licenses and terms.

@@ -1,57 +1,81 @@
 # Architecture
 
-## Research hypothesis
+## Design goals
 
-Speech encoders produce far more time steps than a transcript needs. Fixed subsampling is
-cheap but spends the same memory on silence and speech. Hard CTC spike selection is smaller
-but can permanently drop evidence when the CTC head is uncertain. NUTQ tests a middle path:
-soft pooling kernels are distributed over cumulative non-blank CTC probability.
+NUTQ prioritizes transcription accuracy, then reduces latency without forcing every example
+through the fastest decoder. The design keeps a modality-aligned Whisper encoder/decoder
+interface and learns auxiliary monotonic paths from paired audio and text.
 
-For encoder frame `t`, let `b_t` be the CTC blank probability. Salience is
-`s_t = (1 - b_t + floor) * mask_t`. The normalized cumulative mass defines an acoustic
-coordinate. Output slot centers are uniform in that coordinate, and Gaussian weights pool
-nearby frames. The floor keeps a gradient and evidence path before the CTC head is useful.
+The current family keeps Whisper byte-BPE for AR output and limits raw bytes to compact
+CTC/TDT heads. Encoder states reach the decoder directly, preserving the pretrained
+audio-to-text interface.
 
-The accuracy-oriented default four-times compression maps Whisper's 1,500 encoder positions
-for a 30-second clip to at most 375 cross-attention memory positions. Ratios 2, 4, 6, and 8
-remain required ablations instead of assuming that the most compressed run is best.
+## Shared AR and CTC paths
 
-## Loss
-
-Training minimizes:
+For encoder states `h_t`, the CTC head produces logits over 256 byte values plus blank:
 
 ```text
-L = L_decoder_cross_entropy + λ_ctc · L_ctc
+p_ctc(z_t | x) = softmax(W_ctc h_t)
 ```
 
-The decoder and CTC labels use ByT5's byte vocabulary. Special decoder tokens are excluded
-from the CTC target by tokenizer metadata; no language phrases or named examples are
-hardcoded.
+The AR decoder is a four-layer Whisper decoder initialized from the matching backbone. Its
+cross-attention consumes the original encoder states without late compression or a hidden-
+size projector.
 
-## Initialization
+S/M training minimizes:
 
-- Acoustic encoder: the encoder portion of `openai/whisper-small`.
-- Decoder, byte embedding and LM head: the decoder portion of `google/byt5-small`.
-- Cross-attention: transferred with the ByT5 decoder and adapted to projected speech.
-- CTC head and gated projector: newly initialized.
+```text
+L = λ_ar L_ar + λ_ctc L_ctc
+```
+
+CTC is an auxiliary monotonic alignment objective and an independently measurable fast
+draft. It does not change the AR decoder context.
+
+## NUTQ-X TDT path
+
+NUTQ-X additionally reduces the final encoder sequence by four with learned stride-two
+convolutions. A recurrent prediction network represents previous emitted bytes. The joiner
+combines acoustic and predictor states and emits two independently normalized distributions:
+
+```text
+P(token, duration | t, u) = P_token(token | t, u) · P_duration(duration | t, u)
+```
+
+Blank emissions cannot use duration zero. Nonblank emissions may use zero and emit multiple
+symbols at one acoustic position, bounded during greedy inference to prevent an infinite
+loop. Training uses durations `[0, 1, 2, 3, 4]` and the TDT forward loss:
+
+```text
+L = λ_ar L_ar + λ_ctc L_ctc + λ_tdt L_tdt
+```
+
+Reference: [Token-and-Duration Transducer](https://arxiv.org/abs/2304.06795).
+
+## Confidence routing
+
+NUTQ-X exposes three independent hypotheses:
+
+1. CTC greedy bytes;
+2. TDT greedy bytes with mean emitted-token confidence;
+3. Whisper AR transcript.
+
+In `auto` mode, a threshold selects the TDT draft for high-confidence utterances and runs
+the AR decoder otherwise. The threshold must be calibrated on a held-out set against a
+declared WER/latency objective. It must not depend on named phrases, document titles,
+locations, expected answers, or language-specific regex branches.
+
+The current fallback retranscribes the complete uncertain utterance. Span-only correction
+requires a trained conditioning interface and is intentionally not faked with string rules.
 
 ## Required ablations
 
-Before claiming that CTC guidance helps, train identical runs with:
+- unmodified Whisper backbone;
+- four-layer AR without CTC;
+- four-layer AR with CTC;
+- X with CTC but no TDT loss;
+- X TDT-only decoding;
+- X auto routing at every reported fallback rate;
+- S, M, and X under the same normalized evaluation protocol.
 
-1. no compression;
-2. fixed masked pooling;
-3. soft CTC-mass pooling;
-4. soft pooling without the auxiliary CTC loss.
-
-Report WER, CER, peak VRAM, training tokens/second, real-time factor, and memory positions per
-audio second. The hypothesis fails if soft pooling does not beat fixed pooling at comparable
-latency and training budget.
-
-## Known risks
-
-- Byte sequences are longer than BPE sequences, increasing autoregressive decoding cost.
-- A text-trained cross-attention block must adapt to projected acoustic states.
-- CTC can be overconfident; the salience floor reduces but does not eliminate this risk.
-- Whisper's reference frontend is chunked to 30 seconds; streaming needs explicit state and
-  overlap handling, not merely smaller chunks.
+Paper speedups do not multiply. Measure the complete system, including frontend, encoder,
+decoder, data transfer, and routing overhead.

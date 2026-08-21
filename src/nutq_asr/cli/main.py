@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 def _commands() -> dict[str, Callable[[], None]]:
     # Lazy imports keep `nutq doctor` fast and avoid importing dataset tooling for inference.
+    from .calibrate import main as calibrate
     from .doctor import main as doctor
     from .evaluate import main as evaluate
     from .initialize import main as initialize
@@ -15,6 +16,7 @@ def _commands() -> dict[str, Callable[[], None]]:
     from .transcribe import main as transcribe
 
     return {
+        "calibrate": calibrate,
         "doctor": doctor,
         "init": initialize,
         "train": train,
@@ -29,6 +31,7 @@ def _print_help() -> None:
 
 Usage:
   nutq doctor [--require-gpu]
+  nutq calibrate --model CHECKPOINT --dataset DATASET [OPTIONS]
   nutq init --output CHECKPOINT
   nutq train --dataset DATASET [OPTIONS]
   nutq eval --model CHECKPOINT --dataset DATASET [OPTIONS]

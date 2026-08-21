@@ -1,39 +1,56 @@
 # Performance roadmap
 
-## Available now: PyTorch reference
+## Reference backend
 
-- BF16/FP32 model execution;
-- PyTorch scaled-dot-product attention selected by Transformers;
-- autoregressive KV caching during generation;
-- `torch.inference_mode()` and optional `torch.compile(mode="reduce-overhead")`;
-- dynamic audio resampling and a Python CLI/API.
+The correctness implementation uses PyTorch/Transformers with BF16 or FP32, scaled-dot-
+product attention, AR KV caching, inference mode, optional `torch.compile`, batched dataset
+evaluation, and explicit CTC/TDT/AR strategies.
 
-This path is the correctness oracle for optimized backends.
+NUTQ-X TDT training uses Transformers' anti-diagonal PyTorch TDT loss. Profile it before a
+long run; an optimized CUDA/Numba loss backend is a separate parity-tested optimization.
 
-## Phase 1: production Python serving
+## Phase 1: remove fixed-window waste
 
-Package the reference runtime as a Triton Inference Server Python backend with dynamic
-batching, explicit audio/input limits, health metrics, and a pinned execution environment.
-This improves scheduling and operations; it does not by itself fuse NUTQ kernels.
+Whisper currently requires 3,000 mel positions and produces 1,500 encoder positions for
+every item. Duration grouping helps batching but a two-second recording still pays the
+30-second encoder cost. Dynamic length requires:
 
-## Phase 2: exported graph
+1. slicing positional embeddings to the post-convolution sequence length;
+2. propagating a correct bidirectional encoder mask;
+3. passing the reduced mask into decoder cross-attention;
+4. distillation/fine-tuning after changing the pretrained execution distribution;
+5. parity and WER tests at multiple durations.
 
-Export and validate encoder, compressor/projector, and one decoder step separately. Compare
-ONNX Runtime/TensorRT against PyTorch on transcript equality, maximum logit error, first-token
-latency, steady-state token latency, throughput, VRAM, and real-time factor. Generation stays
-host-orchestrated until an engine-native loop is proven correct.
+This must be implemented as an architecture change, not by merely disabling padding.
 
-## Phase 3: measured native kernels
+## Phase 2: optimized Python serving
 
-Profile representative batch/length distributions. Candidate fusion boundaries are soft
-CTC pooling, gated projection, and decoder-step launch overhead. Implement a Triton kernel
-only when a stable bottleneck is demonstrated. Keep a pure PyTorch fallback and numerical
-tests for every fused operation.
+- compile stable AR and encoder graphs separately;
+- use static KV cache where supported;
+- batch by strategy and duration;
+- keep a warmed model pool for S/M/X;
+- export Prometheus-compatible latency, fallback, and error metrics;
+- serve through Triton Inference Server's Python backend only after reference parity.
 
-## Non-goals for the first release
+## Phase 3: exported/fused runtime
 
-- claiming TensorRT support before export parity tests pass;
-- a custom CUDA kernel that is slower than SDPA or vendor libraries;
-- fake streaming that resets all state on each chunk;
-- quantization without per-language and noisy-speech regression evaluation.
+Export the encoder, CTC head, TDT subsampler/joiner, and one AR decoder step independently.
+Compare ONNX Runtime/TensorRT against PyTorch using transcript equality, logit error,
+first-token latency, per-token latency, complete RTF, and peak memory.
 
+Only implement custom Triton/CUDA kernels for profiler-proven bottlenecks. Likely candidates
+are TDT joint/loss materialization and small-step decoder launch overhead—not the already
+optimized matrix multiplications.
+
+## Phase 4: compression
+
+Evaluate weight-only INT8/INT4 and activation quantization separately for encoder, AR, and
+TDT. A release requires per-language/noise WER regression tables, not only lower VRAM.
+
+## Non-goals
+
+- claiming native/TensorRT support before numerical parity;
+- multiplying isolated paper speedups;
+- calling independent chunks streaming while resetting all state;
+- selecting routing thresholds with semantic phrase rules;
+- quantizing before a trained FP16/BF16 accuracy baseline exists.

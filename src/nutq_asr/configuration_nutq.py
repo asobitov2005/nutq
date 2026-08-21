@@ -1,110 +1,110 @@
-"""Configuration for NUTQ models."""
+"""Configuration for the NUTQ model family."""
 
 from __future__ import annotations
 
-from transformers import PretrainedConfig, T5Config, WhisperConfig
+from typing import Any
+
+from transformers import WhisperConfig
+
+NUTQ_PRESETS: dict[str, dict[str, Any]] = {
+    "s": {
+        "backbone": "openai/whisper-small",
+        "display_name": "NUTQ-S",
+        "tdt_enabled": False,
+    },
+    "m": {
+        "backbone": "openai/whisper-medium",
+        "display_name": "NUTQ-M",
+        "tdt_enabled": False,
+    },
+    "x": {
+        "backbone": "openai/whisper-large-v3-turbo",
+        "display_name": "NUTQ-X",
+        "tdt_enabled": True,
+    },
+}
 
 
-class NutqConfig(PretrainedConfig):
-    """Configuration for a NUTQ encoder-decoder model.
+class NutqConfig(WhisperConfig):
+    """Whisper-compatible configuration with byte CTC and optional TDT heads.
 
-    NUTQ composes a Whisper encoder configuration and a T5 decoder configuration. The
-    nested configurations are serialized into the regular Transformers ``config.json``.
+    NUTQ-S and NUTQ-M use a four-layer Whisper decoder plus an auxiliary UTF-8 byte
+    CTC objective. NUTQ-X adds a byte Token-and-Duration Transducer (TDT) fast path;
+    the four-layer Whisper decoder remains the accuracy-oriented fallback.
     """
 
     model_type = "nutq"
-    is_composition = True
 
     def __init__(
         self,
-        encoder_config: dict | WhisperConfig | None = None,
-        decoder_config: dict | T5Config | None = None,
-        ctc_vocab_size: int | None = None,
-        ctc_blank_token_id: int | None = None,
+        variant: str = "s",
+        backbone_name: str | None = None,
+        ctc_vocab_size: int = 257,
+        ctc_blank_token_id: int = 256,
         ctc_loss_weight: float = 0.3,
-        compressor_mode: str = "soft",
-        compression_ratio: int = 4,
-        compressor_temperature: float = 0.08,
-        compressor_salience_floor: float = 0.05,
-        projector_expansion: int = 2,
-        projector_dropout: float = 0.1,
-        initializer_range: float = 0.02,
-        **kwargs,
+        ar_loss_weight: float = 1.0,
+        tdt_enabled: bool | None = None,
+        tdt_vocab_size: int = 257,
+        tdt_blank_token_id: int = 256,
+        tdt_bos_token_id: int = 257,
+        tdt_hidden_size: int = 512,
+        tdt_num_layers: int = 2,
+        tdt_subsampling_factor: int = 4,
+        tdt_durations: list[int] | tuple[int, ...] = (0, 1, 2, 3, 4),
+        tdt_sigma: float = 0.05,
+        tdt_loss_weight: float = 0.3,
+        tdt_max_symbols_per_step: int = 10,
+        auto_fallback_threshold: float | None = None,
+        **kwargs: Any,
     ) -> None:
-        encoder = self._coerce_encoder_config(encoder_config)
-        decoder = self._coerce_decoder_config(decoder_config)
+        variant = variant.lower()
+        if variant not in NUTQ_PRESETS:
+            choices = ", ".join(sorted(NUTQ_PRESETS))
+            raise ValueError(f"variant must be one of: {choices}")
+        preset = NUTQ_PRESETS[variant]
+        if tdt_enabled is None:
+            tdt_enabled = bool(preset["tdt_enabled"])
+        if kwargs.get("decoder_layers", 4) != 4:
+            raise ValueError("NUTQ checkpoints use exactly four Whisper decoder layers")
+        if ctc_vocab_size <= ctc_blank_token_id:
+            raise ValueError("ctc_blank_token_id must be inside ctc_vocab_size")
+        if tdt_vocab_size <= tdt_blank_token_id:
+            raise ValueError("tdt_blank_token_id must be inside tdt_vocab_size")
+        if tdt_bos_token_id < tdt_vocab_size:
+            raise ValueError("tdt_bos_token_id must not collide with an emitted TDT token")
+        if tdt_subsampling_factor not in {1, 2, 4, 8}:
+            raise ValueError("tdt_subsampling_factor must be one of: 1, 2, 4, 8")
+        durations = tuple(int(value) for value in tdt_durations)
+        if not durations or durations[0] != 0 or any(value < 0 for value in durations):
+            raise ValueError("tdt_durations must begin with zero and contain non-negative values")
+        if len(set(durations)) != len(durations):
+            raise ValueError("tdt_durations must not contain duplicates")
+        if min(ctc_loss_weight, ar_loss_weight, tdt_loss_weight) < 0:
+            raise ValueError("loss weights must be non-negative")
+        if auto_fallback_threshold is not None and not 0.0 <= auto_fallback_threshold <= 1.0:
+            raise ValueError("auto_fallback_threshold must be between zero and one")
 
-        decoder.is_decoder = True
-        decoder.is_encoder_decoder = False
-        decoder.add_cross_attention = True
-        # T5 stores encoder depth in ``num_layers`` and decoder depth separately. NUTQ
-        # keeps only the decoder, so generation cache allocation must see decoder depth.
-        decoder.num_layers = decoder.num_decoder_layers
-
-        vocab_size = decoder.vocab_size
-        blank_id = vocab_size if ctc_blank_token_id is None else ctc_blank_token_id
-        ctc_size = max(vocab_size + 1, blank_id + 1) if ctc_vocab_size is None else ctc_vocab_size
-
-        if compressor_mode not in {"none", "fixed", "soft"}:
-            raise ValueError("compressor_mode must be one of: none, fixed, soft")
-        if compression_ratio < 1:
-            raise ValueError("compression_ratio must be at least 1")
-        if not ctc_loss_weight >= 0.0:
-            raise ValueError("ctc_loss_weight must be non-negative")
-        if not 0 <= blank_id < ctc_size:
-            raise ValueError("ctc_blank_token_id must be inside the CTC vocabulary")
-
-        kwargs.setdefault("is_encoder_decoder", True)
-        kwargs.setdefault("pad_token_id", decoder.pad_token_id)
-        kwargs.setdefault("eos_token_id", decoder.eos_token_id)
-        kwargs.setdefault(
-            "decoder_start_token_id",
-            getattr(decoder, "decoder_start_token_id", decoder.pad_token_id),
-        )
-        kwargs.setdefault("tie_word_embeddings", decoder.tie_word_embeddings)
-        # Transformers 5 validates composite configs during ``super().__init__`` and calls
-        # ``get_text_config``/``to_dict``. Nested and NUTQ-specific fields must therefore
-        # already exist at that point.
-        self.encoder = encoder
-        self.decoder = decoder
-        self.vocab_size = vocab_size
-        self.ctc_vocab_size = ctc_size
-        self.ctc_blank_token_id = blank_id
-        self.ctc_loss_weight = ctc_loss_weight
-        self.compressor_mode = compressor_mode
-        self.compression_ratio = compression_ratio
-        self.compressor_temperature = compressor_temperature
-        self.compressor_salience_floor = compressor_salience_floor
-        self.projector_expansion = projector_expansion
-        self.projector_dropout = projector_dropout
-        self.initializer_range = initializer_range
+        kwargs["decoder_layers"] = 4
         super().__init__(**kwargs)
+        self.variant = variant
+        self.backbone_name = backbone_name or str(preset["backbone"])
+        self.ctc_vocab_size = ctc_vocab_size
+        self.ctc_blank_token_id = ctc_blank_token_id
+        self.ctc_loss_weight = ctc_loss_weight
+        self.ar_loss_weight = ar_loss_weight
+        self.tdt_enabled = tdt_enabled
+        self.tdt_vocab_size = tdt_vocab_size
+        self.tdt_blank_token_id = tdt_blank_token_id
+        self.tdt_bos_token_id = tdt_bos_token_id
+        self.tdt_hidden_size = tdt_hidden_size
+        self.tdt_num_layers = tdt_num_layers
+        self.tdt_subsampling_factor = tdt_subsampling_factor
+        self.tdt_durations = durations
+        self.tdt_sigma = tdt_sigma
+        self.tdt_loss_weight = tdt_loss_weight
+        self.tdt_max_symbols_per_step = tdt_max_symbols_per_step
+        self.auto_fallback_threshold = auto_fallback_threshold
 
-    @staticmethod
-    def _coerce_encoder_config(config: dict | WhisperConfig | None) -> WhisperConfig:
-        if config is None:
-            return WhisperConfig()
-        if isinstance(config, WhisperConfig):
-            return config
-        config = dict(config)
-        config.pop("model_type", None)
-        return WhisperConfig(**config)
-
-    @staticmethod
-    def _coerce_decoder_config(config: dict | T5Config | None) -> T5Config:
-        if config is None:
-            return T5Config()
-        if isinstance(config, T5Config):
-            return config
-        config = dict(config)
-        config.pop("model_type", None)
-        return T5Config(**config)
-
-    def to_dict(self) -> dict:
-        output = super().to_dict()
-        output["encoder_config"] = self.encoder.to_dict()
-        output["decoder_config"] = self.decoder.to_dict()
-        # Use explicit nested names on disk and retain aliases in memory for Transformers.
-        output.pop("encoder", None)
-        output.pop("decoder", None)
-        return output
+    @property
+    def display_name(self) -> str:
+        return str(NUTQ_PRESETS[self.variant]["display_name"])

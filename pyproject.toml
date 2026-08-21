@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nutq-asr"
-version = "0.1.0.dev0"
-description = "Compact multilingual speech recognition with CTC-compressed acoustic memory and a byte-level decoder"
+version = "0.2.0.dev0"
+description = "Accuracy-first multilingual ASR with distilled Whisper decoders, byte CTC, and TDT"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [{ name = "Azizbek Sobitov", email = "asobitov2005@gmail.com" }]
-keywords = ["speech-recognition", "asr", "transformers", "whisper", "byt5", "ctc"]
+keywords = ["speech-recognition", "asr", "transformers", "whisper", "ctc", "tdt"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "License :: OSI Approved :: Apache Software License",
@@ -30,7 +30,7 @@ dependencies = [
   "soxr>=0.5",
   "soundfile>=0.12.1",
   "torch>=2.4,<3",
-  "transformers>=5.0,<6",
+  "transformers>=5.15,<6",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +55,7 @@ nutq = "nutq_asr.cli.main:main"
 nutq-init = "nutq_asr.cli.initialize:main"
 nutq-train = "nutq_asr.cli.train:main"
 nutq-eval = "nutq_asr.cli.evaluate:main"
+nutq-calibrate = "nutq_asr.cli.calibrate:main"
 nutq-transcribe = "nutq_asr.cli.transcribe:main"
 
 [tool.hatch.build.targets.wheel]
@@ -73,3 +74,6 @@ addopts = "-ra --strict-markers"
 
 [tool.coverage.run]
 source = ["nutq_asr"]
+
+[tool.mypy]
+ignore_missing_imports = true

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from nutq_asr import NutqConfig
 
 
@@ -8,17 +10,20 @@ def test_config_round_trip(tmp_path, tiny_config: NutqConfig) -> None:
     restored = NutqConfig.from_pretrained(tmp_path)
 
     assert restored.model_type == "nutq"
-    assert restored.encoder.d_model == 16
-    assert restored.decoder.d_model == 16
-    assert restored.ctc_blank_token_id == 32
+    assert restored.variant == "s"
+    assert restored.decoder_layers == 4
+    assert restored.ctc_blank_token_id == 16
 
 
-def test_config_rejects_invalid_compressor(tiny_config: NutqConfig) -> None:
-    config = tiny_config.to_dict()
-    config["compressor_mode"] = "semantic-if-statements"
-    try:
-        NutqConfig(**config)
-    except ValueError as error:
-        assert "compressor_mode" in str(error)
-    else:
-        raise AssertionError("invalid compressor mode was accepted")
+def test_config_rejects_unknown_variant(tiny_config: NutqConfig) -> None:
+    values = tiny_config.to_dict()
+    values["variant"] = "phrase-hardcoded-edition"
+    with pytest.raises(ValueError, match="variant"):
+        NutqConfig(**values)
+
+
+def test_config_rejects_invalid_tdt_durations(tiny_config: NutqConfig) -> None:
+    values = tiny_config.to_dict()
+    values["tdt_durations"] = [1, 2, 3]
+    with pytest.raises(ValueError, match="tdt_durations"):
+        NutqConfig(**values)

@@ -1,6 +1,5 @@
-"""Building blocks used by NUTQ models."""
+"""Reusable NUTQ architecture modules."""
 
-from .compressor import AcousticMemoryCompressor, CompressorOutput
-from .projector import GatedProjector
+from .tdt import TDTHead, TDTOutput
 
-__all__ = ["AcousticMemoryCompressor", "CompressorOutput", "GatedProjector"]
+__all__ = ["TDTHead", "TDTOutput"]

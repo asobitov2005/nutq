@@ -1,28 +1,21 @@
 from __future__ import annotations
 
-import pytest
 import torch
 
-from nutq_asr.modules import AcousticMemoryCompressor, GatedProjector
+from nutq_asr.modules import TDTHead
 
 
-@pytest.mark.parametrize("mode", ["fixed", "soft"])
-def test_compressor_shape_and_padding(mode: str) -> None:
-    compressor = AcousticMemoryCompressor(mode, ratio=3, blank_token_id=4)
-    states = torch.randn(2, 7, 8, requires_grad=True)
-    mask = torch.tensor([[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 0, 0, 0]])
-    logits = torch.randn(2, 7, 5, requires_grad=True)
+def test_tdt_shapes_and_loss(tiny_x_config) -> None:
+    head = TDTHead(tiny_x_config)
+    states = torch.randn(2, 8, 16, requires_grad=True)
+    lengths = torch.tensor([8, 6])
+    labels = torch.tensor([[3, 4, 5], [6, 7, -100]])
 
-    output = compressor(states, mask, logits)
+    output = head(states, lengths, labels)
+    loss = head.loss(output, labels)
 
-    assert output.hidden_states.shape == (2, 3, 8)
-    assert output.attention_mask.tolist() == [[1, 1, 1], [1, 1, 0]]
-    output.hidden_states.sum().backward()
+    assert output.token_logits.shape == (2, 4, 4, 17)
+    assert output.duration_logits.shape == (2, 4, 4, 3)
+    assert torch.isfinite(loss)
+    loss.backward()
     assert states.grad is not None
-    if mode == "soft":
-        assert logits.grad is not None
-
-
-def test_gated_projector_changes_hidden_size() -> None:
-    projector = GatedProjector(8, 12, expansion=1, dropout=0.0)
-    assert projector(torch.randn(2, 4, 8)).shape == (2, 4, 12)

@@ -2,44 +2,105 @@
 
 ## Data contract
 
-Every record needs audio readable by Datasets and one exact transcript. Audio is decoded and
-resampled to 16 kHz. NUTQ truncates examples beyond 30 seconds in the current release.
+Every example must provide a non-empty audio recording and an exact transcript. Audio is
+decoded with SoundFile, converted to mono, resampled to 16 kHz, and checked for non-finite
+values. Recordings over 30 seconds are rejected by default; set `long_audio_policy: truncate`
+only when deliberate truncation matches the transcript policy.
 
-Use speaker- and source-disjoint splits. Preserve punctuation/casing consistently, record
-the normalization policy, and version the manifest. Remove corrupt audio, empty transcripts,
-transcript/audio mismatches, and train/test duplicates through a data quality pipeline.
+Before training:
 
-## Two-stage schedule
+- remove corrupt, empty, clipped, and transcript-mismatched records;
+- deduplicate audio and near-duplicate transcripts across splits;
+- split by speaker and recording source;
+- version manifests, normalization rules, and dataset revisions;
+- balance languages/domains with a sampling policy rather than phrase exceptions;
+- build silence, noise, numeral, entity, code-switch, and long-form test slices.
 
-`bridge` is the safe first stage. It trains the new CTC head and projector plus transferred
-decoder cross-attention and normalization. This establishes the modality bridge without
-immediately moving every pretrained weight.
+For mixed-language data, set `language_column` and store a valid Whisper language name/code
+in every manifest record. See [Multilingual data](multilingual.md).
 
-`full` unfreezes all parameters. Start from the best bridge checkpoint, lower the learning
-rate (typically 2e-5 to 5e-5), and compare against a run that keeps the acoustic encoder
-frozen. The repository does not hardcode a best learning rate because it depends on batch,
-data diversity, and training hours.
+## Initialization
+
+```bash
+nutq init --variant m --output checkpoints/nutq-m-init
+```
+
+S/M select four decoder blocks from a deeper Whisper teacher and need distillation or paired
+ASR training. X copies the existing four Turbo decoder blocks, preserving the pretrained AR
+path before its new heads are trained.
+
+## Stages
+
+| Stage | Trainable parameters | Intended use |
+|---|---|---|
+| `heads` | CTC and optional TDT | First NUTQ-X alignment stage |
+| `decoder` | heads + four-layer AR decoder | First S/M stage |
+| `top` | decoder/heads + last N encoder blocks | Domain/acoustic adaptation |
+| `full` | complete network | Final large-data stage only |
+
+Example S/M schedule:
+
+```bash
+nutq train --config configs/nutq-m.yaml --dataset json \
+  --train-files /data/train.jsonl --eval-files /data/valid.jsonl --stage decoder
+
+nutq train --config configs/nutq-m-top.yaml --dataset json \
+  --train-files /data/train.jsonl --eval-files /data/valid.jsonl \
+  --checkpoint outputs/nutq-m/checkpoint-best --stage top \
+  --encoder-unfreeze-layers 4
+```
+
+Example X first stage:
+
+```bash
+nutq train --config configs/nutq-x.yaml --dataset json \
+  --train-files /data/train.jsonl --eval-files /data/valid.jsonl --stage heads
+```
+
+Do not enable `auto` routing until CTC/TDT have been trained and the threshold has been
+calibrated on a separate validation set.
+
+## Loss schedule
+
+The YAML defaults are starting points, not accuracy claims:
+
+```text
+λ_ar  = 1.0
+λ_ctc = 0.3
+λ_tdt = 0.3 (X only)
+```
+
+Track each loss separately. Change one objective at a time and keep total training data,
+updates, seed, and decoding constant. If CTC/TDT dominates gradients, warm up the auxiliary
+weight or clip gradients based on measured norms.
+
+Recommended distillation extension for S/M:
+
+```text
+L_total = L_hard + λ_kd KL(student || teacher) + λ_ctc L_ctc
+```
+
+Use Whisper large-v3 or the matching full Whisper decoder as a teacher. Teacher-generated
+labels must not leak evaluation recordings into training.
 
 ## GPU utilization
 
-No flag guarantees 100% GPU utilization. Measure it and remove the actual bottleneck:
+No flag guarantees 100% utilization. Measure the bottleneck:
 
-- increase per-device batch size until close to the VRAM limit;
-- use BF16 on supported GPUs and TF32 for FP32 matrix multiplications;
-- keep data-loader workers, pinned memory, and persistent workers enabled;
-- store data on local NVMe or use streaming with sufficient network throughput;
-- bucket examples by duration in a future sampler to reduce padding;
-- use gradient accumulation for effective batch size, not higher instantaneous GPU use;
-- use gradient checkpointing only when VRAM is the limiter because recomputation costs time;
-- profile before adding custom kernels.
+- maximize micro-batch until close to the VRAM limit;
+- use BF16 on supported GPUs and TF32 for eligible FP32 matrix operations;
+- keep pinned memory, persistent workers, and local NVMe data enabled;
+- use duration grouping to reduce batch imbalance;
+- use gradient accumulation for effective batch, not instantaneous utilization;
+- use gradient checkpointing only when memory is the limiter;
+- use FSDP/ZeRO for M/X full-network optimizer states;
+- profile before writing Triton kernels.
 
-For a 16 GB RTX 4080, begin bridge training at micro-batch 1 or 2 with BF16 and gradient
-checkpointing. Raise it only after observing peak allocated VRAM. Full training has larger
-optimizer/gradient memory and may require optimizer sharding, CPU offload, or a larger GPU.
+The 16 GB examples in the YAML are conservative. NUTQ-X full training will usually require
+sharding/offload or a larger accelerator even at batch one.
 
-## Reproducible reporting
+## Reproducibility
 
-Record the git commit, component revisions, dataset revision, manifest hash, split
-construction, seed, full YAML, GPU, CUDA/PyTorch versions, precision, decoding parameters,
-WER/CER, and wall-clock time. Training loss alone is not an ASR quality result.
-
+Record the git commit, backbone revision, manifest hash, split construction, seed, YAML,
+precision, GPU, CUDA/PyTorch/Transformers versions, optimizer, effective batch, decoding
+parameters, normalized/raw WER/CER, RTF, peak VRAM, and wall-clock time.

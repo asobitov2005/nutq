@@ -5,27 +5,29 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+from typing import Any
 
 import torch
 import transformers
 
 
-def system_report() -> dict:
+def system_report() -> dict[str, Any]:
     cuda_available = torch.cuda.is_available()
-    report = {
+    gpus: list[dict[str, Any]] = []
+    report: dict[str, Any] = {
         "python": platform.python_version(),
         "pytorch": torch.__version__,
         "transformers": transformers.__version__,
         "cuda_available": cuda_available,
         "cuda_runtime": torch.version.cuda,
         "gpu_count": torch.cuda.device_count() if cuda_available else 0,
-        "gpus": [],
+        "gpus": gpus,
     }
     if cuda_available:
         report["bf16_supported"] = torch.cuda.is_bf16_supported()
         for index in range(torch.cuda.device_count()):
             properties = torch.cuda.get_device_properties(index)
-            report["gpus"].append(
+            gpus.append(
                 {
                     "index": index,
                     "name": properties.name,

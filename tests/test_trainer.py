@@ -22,8 +22,8 @@ class TinySpeechDataset(torch.utils.data.Dataset):
 
 def test_seq2seq_trainer_one_step(tmp_path, tiny_config: NutqConfig) -> None:
     model = NutqForConditionalGeneration(tiny_config)
-    model.freeze_pretrained_components()
-    before = model.model.acoustic_encoder.projector.output.weight.detach().clone()
+    model.set_trainable("heads")
+    before = model.ctc_head.weight.detach().clone()
     arguments = Seq2SeqTrainingArguments(
         output_dir=str(tmp_path),
         use_cpu=True,
@@ -39,4 +39,4 @@ def test_seq2seq_trainer_one_step(tmp_path, tiny_config: NutqConfig) -> None:
 
     assert result.global_step == 1
     assert torch.isfinite(torch.tensor(result.training_loss))
-    assert not torch.equal(before, model.model.acoustic_encoder.projector.output.weight)
+    assert not torch.equal(before, model.ctc_head.weight)

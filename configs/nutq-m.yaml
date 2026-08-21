@@ -1,22 +1,27 @@
 model:
-  encoder_name: openai/whisper-small
-  decoder_name: google/byt5-small
-  compressor_mode: soft
-  compression_ratio: 4
+  variant: m
+  backbone_name: openai/whisper-medium
+  language: null
+  task: transcribe
+  ar_loss_weight: 1.0
   ctc_loss_weight: 0.3
-  ctc_blank_token_id: 384
 
 data:
   sampling_rate: 16000
   max_audio_seconds: 30.0
-  max_label_length: 1024
+  max_label_length: 448
+  long_audio_policy: reject
   audio_column: audio
   text_column: text
+  language_column: language
+  task_column: task
+  default_language: null
+  default_task: transcribe
 
 training:
-  output_dir: outputs/nutq-180m
-  learning_rate: 0.0002
-  warmup_steps: 0.05
+  output_dir: outputs/nutq-m
+  learning_rate: 0.00008
+  warmup_ratio: 0.05
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 16
@@ -24,6 +29,8 @@ training:
   bf16: true
   tf32: true
   gradient_checkpointing: true
+  group_by_length: true
+  length_column_name: input_length
   dataloader_num_workers: 8
   dataloader_persistent_workers: true
   save_steps: 1000

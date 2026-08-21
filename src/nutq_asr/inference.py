@@ -31,9 +31,9 @@ class NutqTranscriber:
             if self.device.type == "cuda" and torch.cuda.is_bf16_supported()
             else torch.float32
         )
-        self.model = model.to(device=self.device, dtype=self.dtype).eval()
+        self.model = model.to(device=self.device, dtype=self.dtype).eval()  # type: ignore[call-arg]
         if compile_model:
-            self.model = torch.compile(self.model, mode="reduce-overhead")
+            self.model = torch.compile(self.model, mode="reduce-overhead")  # type: ignore[assignment]
         self.processor = processor
 
     @classmethod
@@ -53,6 +53,8 @@ class NutqTranscriber:
         self,
         audio: str | Path | np.ndarray,
         sampling_rate: int | None = None,
+        strategy: str = "ar",
+        fallback_threshold: float | None = None,
         **generation_kwargs: Any,
     ) -> str:
         waveform, rate = self._load_audio(audio, sampling_rate)
@@ -60,6 +62,11 @@ class NutqTranscriber:
         if rate != target_rate:
             waveform = soxr.resample(waveform, rate, target_rate)
             rate = target_rate
+        maximum_samples = int(self.processor.feature_extractor.chunk_length * rate)
+        if len(waveform) > maximum_samples:
+            raise ValueError(
+                "audio exceeds Whisper's 30-second window; segment it explicitly before inference"
+            )
         inputs = self.processor(
             audio=waveform,
             sampling_rate=rate,
@@ -72,10 +79,33 @@ class NutqTranscriber:
             if key in {"input_features", "attention_mask"}
         }
         model_inputs["input_features"] = model_inputs["input_features"].to(self.dtype)
-        generation_kwargs.setdefault("max_new_tokens", 512)
+        if strategy not in {"ar", "ctc", "tdt", "auto"}:
+            raise ValueError("strategy must be one of: ar, ctc, tdt, auto")
         with torch.inference_mode():
+            if strategy == "ctc":
+                byte_ids, _ = self.model.ctc_greedy_decode(**model_inputs)
+                return self.processor.decode_bytes(byte_ids[0])
+            if strategy in {"tdt", "auto"}:
+                byte_ids, confidence = self.model.tdt_greedy_decode(**model_inputs)
+                draft = self.processor.decode_bytes(byte_ids[0])
+                if strategy == "tdt":
+                    return draft
+                threshold = (
+                    fallback_threshold
+                    if fallback_threshold is not None
+                    else self.model.config.auto_fallback_threshold
+                )
+                if threshold is None:
+                    raise ValueError(
+                        "auto strategy requires a validation-calibrated auto_fallback_threshold"
+                    )
+                if not 0.0 <= threshold <= 1.0:
+                    raise ValueError("fallback_threshold must be between zero and one")
+                if confidence[0] >= threshold:
+                    return draft
+            generation_kwargs.setdefault("max_new_tokens", 448)
             token_ids = self.model.generate(**model_inputs, **generation_kwargs)
-        return self.processor.decode(token_ids[0], skip_special_tokens=True)
+            return self.processor.decode(token_ids[0], skip_special_tokens=True)
 
     @staticmethod
     def _load_audio(

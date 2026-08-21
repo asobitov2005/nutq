@@ -1,72 +1,55 @@
-"""Audio and byte-token processing for NUTQ."""
+"""Whisper audio/BPE processing plus universal UTF-8 auxiliary targets."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from transformers import ByT5Tokenizer, ProcessorMixin, WhisperFeatureExtractor
+from transformers import AutoTokenizer, WhisperFeatureExtractor, WhisperProcessor
+
+from .configuration_nutq import NUTQ_PRESETS
 
 
-class NutqProcessor(ProcessorMixin):
-    """Bundle a Whisper feature extractor with a ByT5 byte tokenizer."""
+class NutqProcessor(WhisperProcessor):
+    """Whisper processor with deterministic UTF-8 byte helpers for CTC and TDT."""
 
-    attributes = ["feature_extractor", "tokenizer"]
-    tokenizer_class = "ByT5Tokenizer"
+    @staticmethod
+    def encode_bytes(text: str) -> list[int]:
+        return list(text.encode("utf-8"))
 
-    def __init__(
-        self, feature_extractor: WhisperFeatureExtractor, tokenizer: ByT5Tokenizer
-    ) -> None:
-        super().__init__(feature_extractor, tokenizer)
+    @staticmethod
+    def decode_bytes(token_ids: list[int]) -> str:
+        values = bytes(token_id for token_id in token_ids if 0 <= token_id <= 255)
+        return values.decode("utf-8", errors="replace")
 
-    def __call__(
-        self,
-        audio: Any | None = None,
-        text: str | list[str] | None = None,
-        sampling_rate: int = 16_000,
-        return_tensors: str | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        if audio is None and text is None:
-            raise ValueError("At least one of audio or text must be provided")
-        output: dict[str, Any] = {}
-        if audio is not None:
-            audio_kwargs = dict(kwargs.pop("audio_kwargs", {}))
-            audio_kwargs.setdefault("return_attention_mask", True)
-            output.update(
-                self.feature_extractor(
-                    audio,
-                    sampling_rate=sampling_rate,
-                    return_tensors=return_tensors,
-                    **audio_kwargs,
-                )
+    def set_target_prefix(self, language: str | None, task: str = "transcribe") -> None:
+        """Set Whisper supervision tokens for one language/task pair."""
+        if task not in {"transcribe", "translate"}:
+            raise ValueError("task must be 'transcribe' or 'translate'")
+        if hasattr(self.tokenizer, "set_prefix_tokens"):
+            self.tokenizer.set_prefix_tokens(
+                language=language,
+                task=task,
+                predict_timestamps=False,
             )
-        if text is not None:
-            text_kwargs = dict(kwargs.pop("text_kwargs", {}))
-            tokenized = self.tokenizer(text, return_tensors=return_tensors, **text_kwargs)
-            if audio is None:
-                output.update(tokenized)
-            else:
-                output["labels"] = tokenized["input_ids"]
-        if kwargs:
-            unexpected = ", ".join(sorted(kwargs))
-            raise TypeError(f"Unexpected processor arguments: {unexpected}")
-        return output
-
-    def batch_decode(self, *args: Any, **kwargs: Any) -> list[str]:
-        return self.tokenizer.batch_decode(*args, **kwargs)
-
-    def decode(self, *args: Any, **kwargs: Any) -> str:
-        return self.tokenizer.decode(*args, **kwargs)
 
     @classmethod
-    def from_pretrained_components(
+    def from_pretrained_variant(
         cls,
-        encoder_name_or_path: str = "openai/whisper-small",
-        decoder_name_or_path: str = "google/byt5-small",
+        variant: str = "s",
+        backbone_name_or_path: str | None = None,
+        language: str | None = None,
+        task: str = "transcribe",
         **feature_extractor_kwargs: Any,
     ) -> NutqProcessor:
+        variant = variant.lower()
+        if variant not in NUTQ_PRESETS:
+            choices = ", ".join(sorted(NUTQ_PRESETS))
+            raise ValueError(f"variant must be one of: {choices}")
+        backbone = backbone_name_or_path or str(NUTQ_PRESETS[variant]["backbone"])
         feature_extractor = WhisperFeatureExtractor.from_pretrained(
-            encoder_name_or_path, **feature_extractor_kwargs
+            backbone, **feature_extractor_kwargs
         )
-        tokenizer = ByT5Tokenizer.from_pretrained(decoder_name_or_path)
-        return cls(feature_extractor, tokenizer)
+        tokenizer = AutoTokenizer.from_pretrained(backbone, use_fast=True)
+        processor = cls(feature_extractor=feature_extractor, tokenizer=tokenizer)
+        processor.set_target_prefix(language, task)
+        return processor
